@@ -1,15 +1,23 @@
 package com.wopi.controller;
 
+import com.common.exception.BaseRuntimeException;
+import com.common.filter.GlobalErrorMessage;
 import com.wopi.model.FileInfo;
-import com.wopi.util.Sha256Utils;
-import org.springframework.beans.factory.annotation.Value;
+import com.wopi.util.DigestUtils;
+import com.wopi.util.NetUtils;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.util.Base64Utils;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpServletResponse;
-import java.io.*;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 
@@ -22,9 +30,6 @@ import java.nio.charset.StandardCharsets;
 @RequestMapping(value = "/wopi")
 public class WopiHostContrller {
 
-    @Value("${file.path}")
-    private String filePath;
-
     /**
      * 获取文件流
      * <p>
@@ -36,44 +41,30 @@ public class WopiHostContrller {
     @GetMapping("/files/{name}/contents")
     public void getFile(@PathVariable(name = "name") String name, HttpServletResponse response) {
         System.out.println("GET获取文件啦!!!!");
-        InputStream fis = null;
-        OutputStream toClient = null;
+        OutputStream outputStream = null;
         try {
             // 文件的路径
-            String path = filePath + name;
-            File file = new File(path);
-            // 取得文件名
-            String filename = file.getName();
+            String fileName = getFileRealPath(name);
+            byte[] fileBytes = NetUtils.downloadFile(fileName);
             // 以流的形式下载文件
-            fis = new BufferedInputStream(new FileInputStream(path));
-            byte[] buffer = new byte[fis.available()];
-            fis.read(buffer);
             // 清空response
             response.reset();
-
+            String downLoadFile = DigestUtils.computeMd5(fileName) + "." + NetUtils.getFileExtension(fileName);
             // 设置response的Header
             response.addHeader("Content-Disposition", "attachment;filename=" +
-                    new String(filename.getBytes(StandardCharsets.UTF_8), StandardCharsets.ISO_8859_1));
-            response.addHeader("Content-Length", "" + file.length());
-            toClient = new BufferedOutputStream(response.getOutputStream());
+                    new String(downLoadFile.getBytes(StandardCharsets.UTF_8), StandardCharsets.ISO_8859_1));
+            response.addHeader("Content-Length", "" + fileBytes.length);
             response.setContentType("application/octet-stream");
-            toClient.write(buffer);
-            toClient.flush();
+            outputStream = response.getOutputStream();
+            outputStream.write(fileBytes);
+            outputStream.flush();
             System.out.println("GET获取文件Contents结束!!!!");
-
         } catch (IOException ex) {
             ex.printStackTrace();
         } finally {
-            if (fis != null) {
+            if (outputStream != null) {
                 try {
-                    fis.close();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-            if (toClient != null) {
-                try {
-                    toClient.close();
+                    outputStream.close();
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
@@ -88,42 +79,42 @@ public class WopiHostContrller {
      */
     @GetMapping(value = "/files/{name}", produces = MediaType.APPLICATION_JSON_UTF8_VALUE)
     public HttpEntity<?> getFileInfo(@PathVariable String name) {
-        System.out.println("获取文件啦!!!!");
+        System.out.println("获取文件信息");
         FileInfo info = new FileInfo();
-        try {
-            // 获取文件名, 防止中文文件名乱码
-            String fileName = URLDecoder.decode(name, StandardCharsets.UTF_8.name());
-            if (fileName == null || fileName.length() == 0) {
-                return ResponseEntity.notFound().build();
-            }
-            File file = new File(filePath + fileName);
-            if (!file.exists()) {
-                return ResponseEntity.notFound().build();
-            }
-            // 取得文件名
-            info.setBaseFileName(file.getName());
-            info.setSize(file.length());
-            info.setOwnerId("admin");
-            info.setVersion(file.lastModified());
-            info.setSha256(getHash256(file));
-            info.setAllowExternalMarketplace(true);
-            info.setUserCanWrite(true);
-            info.setSupportsUpdate(true);
-            info.setSupportsLocks(true);
 
-            return ResponseEntity.ok(info);
-        } catch (IOException e) {
-            return ResponseEntity.notFound().build();
-        }
+        String fileName = getFileRealPath(name);
+        byte[] bytes = NetUtils.downloadFile(fileName);
+        // 取得文件名
+        info.setBaseFileName(DigestUtils.computeMd5(fileName) + "." + NetUtils.getFileExtension(fileName));
+        info.setSize((long) bytes.length);
+        info.setOwnerId("admin");
+        // 将dateId设置给version，相同的version，office-online会自动缓存
+        long dateId = System.currentTimeMillis() / 1000 / 3600 / 24;
+        info.setVersion(dateId);
+        info.setSha256(DigestUtils.computeSha256(bytes));
+        info.setAllowExternalMarketplace(true);
+        info.setUserCanWrite(true);
+        info.setSupportsUpdate(true);
+        info.setSupportsLocks(true);
+
+        return ResponseEntity.ok(info);
+
     }
 
     /**
-     * 获取文件的SHA-256值
+     * 获取文件的真实地址
      *
-     * @param file 文件
-     * @return 文件SHA-256
+     * @param filePath 文件地址
+     * @return 文件的真实地址
      */
-    private static String getHash256(File file) {
-        return Sha256Utils.computeFileSha256(file);
+    private String getFileRealPath(String filePath) {
+        String privateFilePath;
+        try {
+            privateFilePath = URLDecoder.decode(filePath, StandardCharsets.UTF_8.name());
+        } catch (UnsupportedEncodingException e) {
+            throw new BaseRuntimeException(GlobalErrorMessage.INTERNAL_SERVER_ERROR);
+        }
+        byte[] fileNameBytes = Base64Utils.decodeFromString(privateFilePath);
+        return new String(fileNameBytes, StandardCharsets.UTF_8);
     }
 }

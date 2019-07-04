@@ -1,5 +1,7 @@
 plugins {
-    id 'java'
+    id 'java-library'
+    id 'idea'
+    id 'org.springframework.boot' version '2.1.5.RELEASE'
 }
 
 group 'mrcaoyc'
@@ -12,5 +14,17 @@ repositories {
 }
 
 dependencies {
-    testCompile group: 'junit', name: 'junit', version: '4.12'
+    implementation platform('org.springframework.boot:spring-boot-starter-parent:2.1.5.RELEASE')
+    api('org.springframework.boot:spring-boot-starter-web')
+    api('org.springframework.boot:spring-boot-starter-actuator')
+    api('org.springframework.boot:spring-boot-starter-data-rest')
+    api('org.springframework.boot:spring-boot-starter-validation')
+    api('org.springframework.boot:spring-boot-starter-hateoas')
+    api('org.springframework.boot:spring-boot-configuration-processor')
+    api('com.spring4all:swagger-spring-boot-starter:1.9.0.RELEASE')
+    api('io.swagger:swagger-annotations:1.5.22')
+    api('io.swagger:swagger-models:1.5.22')
+    annotationProcessor('org.projectlombok:lombok:1.18.8')
+    compileOnly('org.projectlombok:lombok:1.18.8')
+    testCompile('org.springframework.boot:spring-boot-starter-test')
 }

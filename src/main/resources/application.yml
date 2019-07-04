@@ -1,0 +1,4 @@
+swagger:
+  exclude-path:
+    - /error/**
+    - /actuator/**
